@@ -1,0 +1,585 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Calendar } from '@/components/ui/calendar';
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from '@/components/ui/table';
+import {
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
+} from '@/components/ui/card';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
+import {
+    BarChart,
+    Bar,
+    XAxis,
+    YAxis,
+    CartesianGrid,
+    Tooltip,
+    Legend,
+    PieChart,
+    Pie,
+    Cell,
+    ResponsiveContainer,
+} from 'recharts';
+import { Plus, Edit, Trash2, Calendar as CalendarIcon, Loader2 } from 'lucide-react';
+import { format, parseISO } from 'date-fns';
+import { cn } from '@/lib/utils';
+import { motion, AnimatePresence } from 'framer-motion';
+
+// --- Types ---
+interface Expense {
+    id: string;
+    amount: number;
+    category: string;
+    description: string;
+    date: string; // Store as ISO string for consistency
+}
+
+// --- Constants ---
+const categories = ['Food', 'Housing', 'Transportation', 'Entertainment', 'Other'];
+const chartColors = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#AF19FF'];
+
+// --- Helper Functions ---
+const formatDate = (date: string) => {
+    return format(parseISO(date), 'PPP');
+};
+
+// --- API URLs (Move to a config file if needed) ---
+const API_BASE_URL = 'http://localhost:3001'; // Assumed backend is running on this port
+
+// --- Components ---
+
+/**
+ * Expense Form Component
+ * Manages adding and editing expenses.
+ */
+const ExpenseForm: React.FC<{
+    onAddExpense: (expense: Omit<Expense, 'id'>) => Promise<void>;
+    onUpdateExpense: (id: string, expense: Omit<Expense, 'id'>) => Promise<void>;
+    initialExpense?: Expense;
+    onCancel?: () => void;
+    isSubmitting: boolean;
+}> = ({ onAddExpense, onUpdateExpense, initialExpense, onCancel, isSubmitting }) => {
+    const [amount, setAmount] = useState<number>(initialExpense?.amount || 0);
+    const [category, setCategory] = useState<string>(initialExpense?.category || categories[0]);
+    const [description, setDescription] = useState<string>(initialExpense?.description || '');
+    const [date, setDate] = useState<Date | undefined>(initialExpense ? parseISO(initialExpense.date) : undefined);
+    const [isEditMode, setIsEditMode] = useState(!!initialExpense);
+    const [isDatePopoverOpen, setIsDatePopoverOpen] = useState(false);
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (isSubmitting) return;
+
+        if (!date) {
+            alert('Please select a date.'); // Basic validation
+            return;
+        }
+
+        const expenseData: Omit<Expense, 'id'> = {
+            amount,
+            category,
+            description,
+            date: date.toISOString(),
+        };
+
+        if (isEditMode) {
+            if (initialExpense?.id) {
+                await onUpdateExpense(initialExpense.id, expenseData);
+            }
+        } else {
+            await onAddExpense(expenseData);
+        }
+        resetForm();
+    };
+
+    const resetForm = () => {
+        setAmount(0);
+        setCategory(categories[0]);
+        setDescription('');
+        setDate(undefined);
+        if (onCancel) {
+            onCancel();
+        }
+    };
+
+    return (
+        <Card className="w-full max-w-md mx-auto">
+            <CardHeader>
+                <CardTitle>{isEditMode ? 'Edit Expense' : 'Add Expense'}</CardTitle>
+                <CardDescription>
+                    {isEditMode ? 'Modify the expense details below.' : 'Enter the expense details.'}
+                </CardDescription>
+            </CardHeader>
+            <CardContent>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div className="space-y-2">
+                        <label htmlFor="amount" className="text-sm font-medium block">Amount</label>
+                        <Input
+                            id="amount"
+                            type="number"
+                            value={amount}
+                            onChange={(e) => setAmount(Number(e.target.value))}
+                            required
+                            className="w-full"
+                            min={0}
+                            placeholder="Enter amount"
+                            disabled={isSubmitting}
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <label htmlFor="category" className="text-sm font-medium block">Category</label>
+                        <Select
+                            value={category}
+                            onValueChange={setCategory}
+                            disabled={isSubmitting}
+                        >
+                            <SelectTrigger id="category" className="w-full">
+                                <SelectValue placeholder="Select a category" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {categories.map((cat) => (
+                                    <SelectItem key={cat} value={cat}>
+                                        {cat}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="space-y-2">
+                        <label htmlFor="description" className="text-sm font-medium block">Description</label>
+                        <Input
+                            id="description"
+                            type="text"
+                            value={description}
+                            onChange={(e) => setDescription(e.target.value)}
+                            required
+                            className="w-full"
+                            placeholder="Enter description"
+                            disabled={isSubmitting}
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <label htmlFor="date" className="text-sm font-medium block">Date</label>
+                        <div className="relative">
+                            <Button
+                                id="date"
+                                variant="outline"
+                                className={cn(
+                                    "w-full justify-start text-left font-normal",
+                                    !date && "text-muted-foreground"
+                                )}
+                                onClick={() => setIsDatePopoverOpen(!isDatePopoverOpen)}
+                                disabled={isSubmitting}
+                            >
+                                {date ? formatDate(date.toISOString()) : <span>Pick a date</span>}
+                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                            </Button>
+                            <AnimatePresence>
+                                {isDatePopoverOpen && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: -10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: -10 }}
+                                        transition={{ duration: 0.2 }}
+                                        className="absolute z-10 mt-2 w-full"
+                                    >
+                                        <Card className="rounded-md shadow-lg">
+                                            <CardContent className="p-0">
+                                                <Calendar
+                                                    mode="single"
+                                                    selected={date}
+                                                    onSelect={setDate}
+                                                    onClose={() => setIsDatePopoverOpen(false)}
+                                                    className="rounded-md"
+                                                />
+                                            </CardContent>
+                                        </Card>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                        </div>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                        {onCancel && (
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={onCancel}
+                                disabled={isSubmitting}
+                            >
+                                Cancel
+                            </Button>
+                        )}
+                        <Button type="submit" disabled={isSubmitting}>
+                            {isSubmitting ? (
+                                <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Saving...
+                                </>
+                            ) : (
+                                isEditMode ? 'Update' : 'Add Expense'
+                            )}
+                        </Button>
+                    </div>
+                </form>
+            </CardContent>
+        </Card>
+    );
+};
+
+/**
+ * Expense List Component
+ * Displays and manages the list of expenses.
+ */
+const ExpenseList: React.FC<{
+    expenses: Expense[];
+    onDeleteExpense: (id: string) => Promise<void>;
+    onEditExpense: (expense: Expense) => void;
+    isDeleting: string | null;
+}> = ({ expenses, onDeleteExpense, onEditExpense, isDeleting }) => {
+    return (
+        <Card className="w-full">
+            <CardHeader>
+                <CardTitle>Expenses</CardTitle>
+                <CardDescription>List of all your expenses</CardDescription>
+            </CardHeader>
+            <CardContent>
+                {expenses.length === 0 ? (
+                    <p className="text-gray-500 text-center">No expenses added yet.</p>
+                ) : (
+                    <div className="rounded-md border">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Amount</TableHead>
+                                    <TableHead>Category</TableHead>
+                                    <TableHead>Description</TableHead>
+                                    <TableHead>Date</TableHead>
+                                    <TableHead className="text-right">Actions</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                <AnimatePresence>
+                                    {expenses.map((expense) => (
+                                        <motion.tr
+                                            key={expense.id}
+                                            initial={{ opacity: 0, x: -20 }}
+                                            animate={{ opacity: 1, x: 0 }}
+                                            exit={{ opacity: 0, x: 20 }}
+                                            transition={{ duration: 0.2 }}
+                                        >
+                                            <TableCell>${expense.amount.toFixed(2)}</TableCell>
+                                            <TableCell>{expense.category}</TableCell>
+                                            <TableCell>{expense.description}</TableCell>
+                                            <TableCell>{formatDate(expense.date)}</TableCell>
+                                            <TableCell className="text-right space-x-2">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    onClick={() => onEditExpense(expense)}
+                                                    disabled={isDeleting !== null}
+                                                >
+                                                    <Edit className="h-4 w-4 text-gray-500" />
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    onClick={() => onDeleteExpense(expense.id)}
+                                                    disabled={isDeleting !== null}
+                                                >
+                                                    {isDeleting === expense.id ? (
+                                                        <Loader2 className="h-4 w-4 animate-spin text-red-500" />
+                                                    ) : (
+                                                        <Trash2 className="h-4 w-4 text-red-500" />
+                                                    )}
+                                                </Button>
+                                            </TableCell>
+                                        </motion.tr>
+                                    ))}
+                                </AnimatePresence>
+                            </TableBody>
+                        </Table>
+                    </div>
+                )}
+            </CardContent>
+        </Card>
+    );
+};
+
+/**
+ * Expense Charts Component
+ * Visualizes expense data using Recharts.
+ */
+const ExpenseCharts: React.FC<{ expenses: Expense[] }> = ({ expenses }) => {
+    // --- Data Transformation for Charts ---
+
+    // 1. Category Distribution Data
+    const categoryData = categories.map((category) => {
+        const total = expenses.filter((expense) => expense.category === category)
+            .reduce((acc, curr) => acc + curr.amount, 0);
+        return { category, total };
+    });
+
+    // 2. Monthly Expenses Data
+    const monthlyExpenses: { [month: string]: number } = {};
+    expenses.forEach((expense) => {
+        const month = format(parseISO(expense.date), 'MMMM yyyy'); // "January 2024"
+        if (monthlyExpenses[month]) {
+            monthlyExpenses[month] += expense.amount;
+        } else {
+            monthlyExpenses[month] = expense.amount;
+        }
+    });
+
+    const monthlyData = Object.entries(monthlyExpenses).map(([month, total]) => ({
+        month,
+        total,
+    }));
+
+    return (
+        <div className="flex flex-col md:flex-row gap-8 w-full">
+            {/* Pie Chart for Category Distribution */}
+            <Card className="w-full md:w-1/2">
+                <CardHeader>
+                    <CardTitle>Expense Distribution by Category</CardTitle>
+                    <CardDescription>Percentage of expenses in each category</CardDescription>
+                </CardHeader>
+                <CardContent className="flex justify-center">
+                    <ResponsiveContainer width="100%" height={300}>
+                        <PieChart>
+                            <Pie
+                                data={categoryData}
+                                cx="50%"
+                                cy="50%"
+                                labelLine={false}
+                                outerRadius={80}
+                                fill="#8884d8"
+                                dataKey="total"
+                                label={({
+                                    cx,
+                                    cy,
+                                    midAngle,
+                                    innerRadius,
+                                    outerRadius,
+                                    value,
+                                    index
+                                }: any) => {
+                                    const RADIAN = Math.PI / 180;
+                                    const radius = 25 + innerRadius + (outerRadius - innerRadius);
+                                    const x = cx + radius * Math.cos(-midAngle * RADIAN);
+                                    const y = cy + radius * Math.sin(-midAngle * RADIAN);
+
+                                    return (
+                                        <text
+                                            x={x}
+                                            y={y}
+                                            fill={chartColors[index % chartColors.length]}
+                                            textAnchor={x > cx ? 'start' : 'end'}
+                                            dominantBaseline="central"
+                                        >
+                                            {categoryData[index].category} ({value.toFixed(2)})
+                                        </text>
+                                    );
+                                }}
+                            >
+                                {categoryData.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={chartColors[index % chartColors.length]} />
+                                ))}
+                            </Pie>
+                            <Tooltip />
+                            <Legend />
+                        </PieChart>
+                    </ResponsiveContainer>
+                </CardContent>
+            </Card>
+
+            {/* Bar Chart for Monthly Expenses */}
+            <Card className="w-full md:w-1/2">
+                <CardHeader>
+                    <CardTitle>Monthly Expenses</CardTitle>
+                    <CardDescription>Total expenses per month</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <ResponsiveContainer width="100%" height={300}>
+                        <BarChart data={monthlyData}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="month" />
+                            <YAxis />
+                            <Tooltip />
+                            <Legend />
+                            <Bar dataKey="total" fill="#82ca9d" />
+                        </BarChart>
+                    </ResponsiveContainer>
+                </CardContent>
+            </Card>
+        </div>
+    );
+};
+
+/**
+ * Main App Component
+ * Integrates all other components and manages the overall application state.
+ */
+const ExpenseTrackerApp = () => {
+    const [expenses, setExpenses] = useState<Expense[]>([]);
+    const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isDeleting, setIsDeleting] = useState<string | null>(null);
+    const [loading, setLoading] = useState(true); // Add loading state
+
+    // --- Data Fetching (useEffect) ---
+    useEffect(() => {
+        const fetchExpenses = async () => {
+            try {
+                const response = await fetch(`${API_BASE_URL}/expenses`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data: Expense[] = await response.json();
+                setExpenses(data);
+            } catch (error) {
+                console.error('Failed to fetch expenses:', error);
+                alert('Failed to load expenses. Please check your network connection and try again.');
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchExpenses();
+    }, []);
+
+    // --- CRUD Operations ---
+    const handleAddExpense = useCallback(async (newExpense: Omit<Expense, 'id'>) => {
+        setIsSubmitting(true);
+        try {
+            const response = await fetch(`${API_BASE_URL}/expenses`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(newExpense),
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const savedExpense: Expense = await response.json();
+            setExpenses((prevExpenses) => [...prevExpenses, savedExpense]);
+        } catch (error) {
+            console.error('Error adding expense:', error);
+            alert('Failed to add expense. Please try again.');
+        } finally {
+            setIsSubmitting(false);
+        }
+    }, []);
+
+    const handleUpdateExpense = useCallback(async (id: string, updatedExpense: Omit<Expense, 'id'>) => {
+        setIsSubmitting(true);
+        try {
+            const response = await fetch(`${API_BASE_URL}/expenses/${id}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(updatedExpense),
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const updated: Expense = await response.json();
+            setExpenses((prevExpenses) =>
+                prevExpenses.map((expense) => (expense.id === id ? updated : expense))
+            );
+            setEditingExpense(null); // Reset editing state
+        } catch (error) {
+            console.error('Error updating expense:', error);
+            alert('Failed to update expense. Please try again.');
+        } finally {
+            setIsSubmitting(false);
+        }
+    }, []);
+
+    const handleDeleteExpense = useCallback(async (id: string) => {
+        setIsDeleting(id);
+        try {
+            const response = await fetch(`${API_BASE_URL}/expenses/${id}`, {
+                method: 'DELETE',
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            setExpenses((prevExpenses) => prevExpenses.filter((expense) => expense.id !== id));
+        } catch (error) {
+            console.error('Error deleting expense:', error);
+            alert('Failed to delete expense. Please try again.');
+        } finally {
+            setIsDeleting(null);
+        }
+    }, []);
+
+    const handleEditExpense = (expense: Expense) => {
+        setEditingExpense(expense);
+    };
+
+    const handleCancelEdit = () => {
+        setEditingExpense(null);
+    };
+
+    return (
+        <div className="container mx-auto p-4 space-y-8">
+            <h1 className="text-3xl font-bold text-center">Expense Tracker</h1>
+
+            {/* Conditional rendering for loading state */}
+            {loading ? (
+                <div className="text-center">
+                    <Loader2 className="h-8 w-8 animate-spin mx-auto text-gray-500" />
+                    <p className="mt-2 text-gray-500">Loading expenses...</p>
+                </div>
+            ) : (
+                <>
+                    {editingExpense ? (
+                        <ExpenseForm
+                            onUpdateExpense={handleUpdateExpense}
+                            initialExpense={editingExpense}
+                            onCancel={handleCancelEdit}
+                            isSubmitting={isSubmitting}
+                        />
+                    ) : (
+                        <ExpenseForm
+                            onAddExpense={handleAddExpense}
+                            isSubmitting={isSubmitting}
+                        />
+                    )}
+
+                    <ExpenseList
+                        expenses={expenses}
+                        onDeleteExpense={handleDeleteExpense}
+                        onEditExpense={handleEditExpense}
+                        isDeleting={isDeleting}
+                    />
+
+                    <ExpenseCharts expenses={expenses} />
+                </>
+            )}
+        </div>
+    );
+};
+
+export default ExpenseTrackerApp;
+
